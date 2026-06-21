@@ -1,99 +1,101 @@
-import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
-import { formatDate, formatDateTime } from "@/lib/utils";
-import { Clock, CheckCircle } from "lucide-react";
+"use client";
 
-export default async function AttendancePage() {
-  const session = await auth();
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+import { useState } from "react";
+import { ClockWidget } from "@/components/attendance/clock-widget";
+import { AttendanceCalendar } from "@/components/attendance/attendance-calendar";
+import { AttendanceHistory } from "@/components/attendance/attendance-history";
+import { TeamAttendance } from "@/components/attendance/team-attendance";
+import { Clock, CalendarDays, Table2, Users } from "lucide-react";
 
-  const todayRecord = await prisma.attendance.findUnique({
-    where: {
-      userId_date: {
-        userId: session!.user.id,
-        date: today,
-      },
-    },
-  });
+type Tab = "my" | "team";
 
-  const recent = await prisma.attendance.findMany({
-    where: { userId: session!.user.id },
-    orderBy: { date: "desc" },
-    take: 10,
-  });
+export default function AttendancePage() {
+  const [tab, setTab] = useState<Tab>("my");
+  const [view, setView] = useState<"calendar" | "table">("calendar");
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  function handleClockAction() {
+    setRefreshKey((k) => k + 1);
+  }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-slate-900">Attendance</h1>
-        <p className="text-slate-500 mt-1">Track your work hours</p>
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-900">Attendance</h1>
+          <p className="text-slate-500 text-sm mt-0.5">Track work hours and team presence</p>
+        </div>
+
+        {/* Tab toggle */}
+        <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl p-1">
+          <button
+            onClick={() => setTab("my")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              tab === "my" ? "bg-blue-600 text-white shadow-sm" : "text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            <Clock size={14} /> My Attendance
+          </button>
+          <button
+            onClick={() => setTab("team")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              tab === "team" ? "bg-blue-600 text-white shadow-sm" : "text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            <Users size={14} /> Team View
+          </button>
+        </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 p-6">
-        <h2 className="font-semibold text-slate-800 mb-4">Today — {formatDate(new Date())}</h2>
-        {todayRecord ? (
-          <div className="flex items-center gap-8">
-            <div>
-              <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Clocked In</p>
-              <p className="text-lg font-semibold text-slate-900">
-                {todayRecord.clockIn ? formatDateTime(todayRecord.clockIn) : "—"}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Clocked Out</p>
-              <p className="text-lg font-semibold text-slate-900">
-                {todayRecord.clockOut ? formatDateTime(todayRecord.clockOut) : "Still working"}
-              </p>
-            </div>
-            <div className="flex items-center gap-1.5 text-green-600">
-              <CheckCircle size={16} />
-              <span className="text-sm font-medium capitalize">{todayRecord.type}</span>
-            </div>
+      {/* My Attendance Tab */}
+      {tab === "my" && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          {/* Left: Clock widget */}
+          <div className="lg:col-span-1">
+            <ClockWidget onClockAction={handleClockAction} />
           </div>
-        ) : (
-          <div className="flex items-center gap-4">
-            <p className="text-slate-500 text-sm">You haven't clocked in yet today.</p>
-            <form action="/api/attendance" method="POST">
+
+          {/* Right: Calendar + History */}
+          <div className="lg:col-span-2 space-y-5">
+            {/* View toggle */}
+            <div className="flex items-center gap-1 self-start bg-white border border-slate-200 rounded-lg p-1 w-fit">
               <button
-                type="submit"
-                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
+                onClick={() => setView("calendar")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  view === "calendar" ? "bg-slate-100 text-slate-800" : "text-slate-500 hover:text-slate-700"
+                }`}
               >
-                <Clock size={16} />
-                Clock In
+                <CalendarDays size={14} /> Calendar
               </button>
-            </form>
-          </div>
-        )}
-      </div>
+              <button
+                onClick={() => setView("table")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  view === "table" ? "bg-slate-100 text-slate-800" : "text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                <Table2 size={14} /> Table
+              </button>
+            </div>
 
-      <div className="bg-white rounded-xl border border-slate-200">
-        <div className="px-5 py-4 border-b border-slate-100">
-          <h2 className="font-semibold text-slate-800">Recent Attendance</h2>
+            <div key={refreshKey}>
+              {view === "calendar" ? <AttendanceCalendar /> : <AttendanceHistory />}
+            </div>
+          </div>
         </div>
-        <div className="divide-y divide-slate-100">
-          {recent.length === 0 ? (
-            <p className="text-center text-slate-400 text-sm py-10">No records yet</p>
-          ) : (
-            recent.map((record) => (
-              <div key={record.id} className="flex items-center gap-6 px-5 py-3.5">
-                <p className="text-sm font-medium text-slate-700 w-28">
-                  {formatDate(record.date)}
-                </p>
-                <p className="text-sm text-slate-600 w-24">
-                  {record.clockIn ? formatDateTime(record.clockIn).split(",")[1].trim() : "—"}
-                </p>
-                <p className="text-sm text-slate-600 w-24">
-                  {record.clockOut ? formatDateTime(record.clockOut).split(",")[1].trim() : "—"}
-                </p>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 capitalize">
-                  {record.type}
-                </span>
-              </div>
-            ))
-          )}
+      )}
+
+      {/* Team Attendance Tab */}
+      {tab === "team" && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          <div className="lg:col-span-2">
+            <TeamAttendance />
+          </div>
+          <div className="lg:col-span-1">
+            <ClockWidget onClockAction={handleClockAction} />
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
