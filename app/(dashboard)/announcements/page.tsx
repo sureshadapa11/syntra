@@ -1,67 +1,194 @@
-import { prisma } from "@/lib/prisma";
-import { formatDateTime } from "@/lib/utils";
-import { Megaphone, Plus, Pin } from "lucide-react";
-import { getInitials } from "@/lib/utils";
+"use client";
 
-export default async function AnnouncementsPage() {
-  const announcements = await prisma.announcement.findMany({
-    include: { createdBy: true, department: true },
-    orderBy: [{ pinned: "desc" }, { createdAt: "desc" }],
-  });
+import { useState, useEffect, useCallback } from "react";
+import { useSession } from "next-auth/react";
+import { AnnouncementCard } from "@/components/announcements/announcement-card";
+import { AnnouncementForm } from "@/components/announcements/announcement-form";
+import { Modal } from "@/components/ui/modal";
+import { Megaphone, Plus, Search, Globe, Building2 } from "lucide-react";
+
+interface Announcement {
+  id: string;
+  title: string;
+  content: string;
+  pinned: boolean;
+  createdAt: string;
+  departmentId: string | null;
+  createdBy: { id: string; name: string; avatar: string | null; jobTitle: string | null };
+  department: { id: string; name: string } | null;
+}
+
+interface Department { id: string; name: string; }
+
+const CAN_POST_ROLES = ["admin", "manager", "hr"];
+
+export default function AnnouncementsPage() {
+  const { data: session } = useSession();
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [filterDept, setFilterDept] = useState("");
+  const [showForm, setShowForm] = useState(false);
+
+  const canPost = CAN_POST_ROLES.includes(session?.user?.role ?? "");
+  const canManage = canPost;
+
+  const fetchAnnouncements = useCallback(async () => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (filterDept) params.set("departmentId", filterDept);
+    if (search) params.set("search", search);
+    const res = await fetch(`/api/announcements?${params}`);
+    setAnnouncements(await res.json());
+    setLoading(false);
+  }, [filterDept, search]);
+
+  useEffect(() => { fetchAnnouncements(); }, [fetchAnnouncements]);
+
+  useEffect(() => {
+    fetch("/api/departments")
+      .then((r) => r.json())
+      .then(setDepartments);
+  }, []);
+
+  function handleCreated(ann: Announcement) {
+    setAnnouncements((prev) => {
+      const updated = [ann, ...prev];
+      return updated.sort((a, b) => {
+        if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+    });
+    setShowForm(false);
+  }
+
+  function handleUpdated(updated: Announcement) {
+    setAnnouncements((prev) => {
+      const list = prev.map((a) => (a.id === updated.id ? updated : a));
+      return list.sort((a, b) => {
+        if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+    });
+  }
+
+  function handleDeleted(id: string) {
+    setAnnouncements((prev) => prev.filter((a) => a.id !== id));
+  }
+
+  const pinned = announcements.filter((a) => a.pinned);
+  const unpinned = announcements.filter((a) => !a.pinned);
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="p-6 max-w-3xl mx-auto space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Announcements</h1>
-          <p className="text-slate-500 mt-1">Company news and updates</p>
+          <h1 className="text-2xl font-bold text-slate-900">Announcements</h1>
+          <p className="text-sm text-slate-500 mt-1">Company news, updates, and important messages</p>
         </div>
-        <button className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
-          <Plus size={16} />
-          Post Announcement
-        </button>
-      </div>
-
-      <div className="space-y-4 max-w-3xl">
-        {announcements.length === 0 ? (
-          <div className="bg-white rounded-xl border border-slate-200 flex flex-col items-center justify-center py-20">
-            <Megaphone size={48} className="text-slate-300 mb-3" />
-            <p className="text-slate-600 font-medium">No announcements yet</p>
-          </div>
-        ) : (
-          announcements.map((ann) => (
-            <div key={ann.id} className={`bg-white rounded-xl border p-5 ${ann.pinned ? "border-blue-300 bg-blue-50/30" : "border-slate-200"}`}>
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    {ann.pinned && <Pin size={13} className="text-blue-600" />}
-                    <h3 className="font-semibold text-slate-900">{ann.title}</h3>
-                    {ann.department && (
-                      <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
-                        {ann.department.name}
-                      </span>
-                    )}
-                    {!ann.department && (
-                      <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
-                        Company-wide
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-sm text-slate-600 leading-relaxed">{ann.content}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 mt-4 text-xs text-slate-400">
-                <div className="w-5 h-5 rounded-full bg-slate-700 flex items-center justify-center text-white text-xs">
-                  {getInitials(ann.createdBy.name)}
-                </div>
-                <span>{ann.createdBy.name}</span>
-                <span>·</span>
-                <span>{formatDateTime(ann.createdAt)}</span>
-              </div>
-            </div>
-          ))
+        {canPost && (
+          <button
+            onClick={() => setShowForm(true)}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+          >
+            <Plus size={15} /> Post Announcement
+          </button>
         )}
       </div>
+
+      {/* Search + filters */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-2 flex-1 min-w-[200px]">
+          <Search size={14} className="text-slate-400 shrink-0" />
+          <input
+            type="text"
+            placeholder="Search announcements…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="text-sm bg-transparent focus:outline-none text-slate-700 flex-1 placeholder:text-slate-400"
+          />
+        </div>
+
+        {/* Department filter pills */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <button
+            onClick={() => setFilterDept("")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+              filterDept === "" ? "bg-blue-600 text-white" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            <Globe size={11} /> All
+          </button>
+          <button
+            onClick={() => setFilterDept("company")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+              filterDept === "company" ? "bg-blue-600 text-white" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            <Globe size={11} /> Company-wide
+          </button>
+          {departments.map((d) => (
+            <button
+              key={d.id}
+              onClick={() => setFilterDept(filterDept === d.id ? "" : d.id)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                filterDept === d.id ? "bg-blue-600 text-white" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              <Building2 size={11} /> {d.name}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Feed */}
+      {loading ? (
+        <div className="py-20 flex justify-center">
+          <div className="w-7 h-7 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+        </div>
+      ) : announcements.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-slate-200 flex flex-col items-center justify-center py-20">
+          <Megaphone size={48} className="text-slate-300 mb-3" />
+          <p className="font-semibold text-slate-600">
+            {search || filterDept ? "No announcements match your filters" : "No announcements yet"}
+          </p>
+          {!search && !filterDept && canPost && (
+            <>
+              <p className="text-sm text-slate-400 mt-1">Be the first to share a company update</p>
+              <button
+                onClick={() => setShowForm(true)}
+                className="mt-4 flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+              >
+                <Plus size={14} /> Post Announcement
+              </button>
+            </>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {announcements.map((ann) => (
+            <AnnouncementCard
+              key={ann.id}
+              ann={ann}
+              departments={departments}
+              canManage={canManage}
+              currentUserId={session?.user?.id ?? ""}
+              onUpdate={handleUpdated}
+              onDelete={handleDeleted}
+            />
+          ))}
+        </div>
+      )}
+
+      <Modal open={showForm} onClose={() => setShowForm(false)} title="Post Announcement" size="lg">
+        <AnnouncementForm
+          departments={departments}
+          onSuccess={handleCreated}
+          onCancel={() => setShowForm(false)}
+        />
+      </Modal>
     </div>
   );
 }
