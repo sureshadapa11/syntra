@@ -17,3 +17,22 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json(teams);
 }
+
+export async function POST(req: NextRequest) {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!["admin", "hr"].includes(session.user.role)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const { name, departmentId, leadId } = await req.json();
+  if (!name?.trim()) return NextResponse.json({ error: "Name is required" }, { status: 400 });
+  if (!departmentId) return NextResponse.json({ error: "Department is required" }, { status: 400 });
+
+  const team = await prisma.team.create({
+    data: { name: name.trim(), departmentId, leadId: leadId || null },
+    include: { department: { select: { name: true } }, _count: { select: { users: true } } },
+  });
+
+  return NextResponse.json(team, { status: 201 });
+}
